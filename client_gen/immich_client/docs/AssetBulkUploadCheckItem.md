@@ -1,0 +1,12 @@
+# AssetBulkUploadCheckItem
+
+## Properties
+
+Name | Type | Description | Notes
+------------ | ------------- | ------------- | -------------
+**checksum** | **String** | Base64 or hex encoded SHA1 hash | 
+**id** | **String** | Asset ID | 
+
+[[Back to Model list]](../README.md#documentation-for-models) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to README]](../README.md)
+
+

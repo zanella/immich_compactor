@@ -1,0 +1,11 @@
+.idea
+
+client_gen/immich_client/target
+client_gen/node_modules
+
+/target
+
+/sandbox/library
+/sandbox/postgres
+
+immich_library_optimizer.iml

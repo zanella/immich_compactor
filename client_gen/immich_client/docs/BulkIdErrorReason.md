@@ -1,0 +1,16 @@
+# BulkIdErrorReason
+
+## Enum Variants
+
+| Name | Value |
+|---- | -----|
+| Duplicate | duplicate |
+| NoPermission | no_permission |
+| NotFound | not_found |
+| Unknown | unknown |
+| Validation | validation |
+
+
+[[Back to Model list]](../README.md#documentation-for-models) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to README]](../README.md)
+
+

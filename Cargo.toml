@@ -1,9 +1,14 @@
 [package]
-name = "immich_library_optimizer"
+name = "immich_compactor"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+anyhow = "1.0.102"
 chrono = "0.4.44"
+derive_more = { version = "2.1.1", features = ["constructor"] }
+#futures = "0.3"
 immich_client = { path = "client_gen/immich_client" }
+mime2ext = "0.1"
+sqlx = { version = "0.8", features = [ "runtime-tokio", "postgres" ] }
 tokio = { version = "1.52.3", features = ["rt", "rt-multi-thread", "macros"] }

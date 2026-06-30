@@ -1,7 +1,15 @@
-use std::process::exit;
-use chrono::DateTime;
-use immich_client::apis::configuration::{ApiKey, Configuration};
-use immich_client::models::MetadataSearchDto;
+use anyhow::Context;
+use sqlx::PgPool;
+use crate::immich_api_wrappers::{search_wrappers, server_wrappers};
+use crate::database_repository::{test_db_connection, db_connect, db_create, nuke_database, StagingAreaEntry, User};
+
+mod immich_api_wrappers;
+mod database_repository;
+mod config;
+
+use immich_client::apis::configuration::{ApiKey, Configuration as ImmichApiConfiguration};
+use immich_client::models::SearchResponseDto;
+use crate::config::OwnConfig;
 
 /**
   * § Overall plan / architecture:
@@ -18,54 +26,95 @@ use immich_client::models::MetadataSearchDto;
   * -- I want to see the progress, stats, etc
   **/
 #[tokio::main]
-async fn main() {
-    blah().await;
-}
+async fn main() -> Result<(), anyhow::Error> {
 
-async fn blah() {
-    let cfg = Configuration {
-        base_path: String::from("http://localhost:2283/api"),
+    let own_config = OwnConfig::default();
+
+    let pg_pool = db_connect(&own_config).await.context("DB error")?;
+
+    if let Ok(()) = test_db_connection(&pg_pool).await {
+        // TODO: remove
+        nuke_database(&pg_pool).await?;
+
+        db_create(&pg_pool).await?;
+    }
+
+    /////// BEGIN_FAKE_USER_SETUP /////
+
+    let user =
+        User::create("rzanella", "wrmIFc2FMOwNTUyyUdyBOBgwnvfNRsuY8xyDiy0E", &pg_pool).await?;
+
+    let immich_api_cfg = ImmichApiConfiguration {
+        base_path: format!("{}/api", own_config.immich_url),
         api_key: Some(
             ApiKey {
                 prefix: None,
-                key: String::from("wrmIFc2FMOwNTUyyUdyBOBgwnvfNRsuY8xyDiy0E")
+                key: user.api_key.clone(),
             }
         ),
-        ..Configuration::default()
+        ..ImmichApiConfiguration::default()
     };
 
-    ///////////////////////////////////////////////////////////////////////////
-
-    match immich_client::apis::server_api::get_about_info(&cfg).await {
-        Ok(_) => {}
-        Err(e) => {
-            eprintln!("Unable to connect / use the API, check the URL and KEY are correct");
-            eprintln!("Error: {}", e);
-            exit(1);
-        }
+    if let Some(x) = server_wrappers::check_api_accessible(&immich_api_cfg).await {
+        panic!("Server returned: {:#}", x);
     }
 
-    // 1. Create Utc DateTime from timestamp (returns Option)
-    // 2. Map the inner Utc datetime to a FixedOffset datetime
-    let created_after = DateTime::from_timestamp(1, 0)
-        .map(|utc_dt| DateTime::from(utc_dt));
+    /////// END_FAKE_USER_SETUP /////
 
-    // Get everything
-    // TODO: how does it paginate ?
-    match immich_client::apis::search_api::search_assets(
-        &cfg,
-        MetadataSearchDto {
-            created_after,
-            with_deleted: Some(false),
-            ..MetadataSearchDto::new()
-        }
-    ).await {
-        Ok(search_response) => {
-            println!("Search Result: {:?}", search_response);
-        }
+    blah(&immich_api_cfg, &user, &pg_pool).await.expect("wat ?");
 
-        Err(e) => {
-            eprintln!("Error: {}", e);
-        }
+    Ok(())
+}
+
+async fn blah(
+    api_cfg: &ImmichApiConfiguration,
+    user: &User,
+    pg_pool: &PgPool
+) -> Result<SearchResponseDto, anyhow::Error> {
+    let search_response = search_wrappers::get_all_assets(api_cfg)
+        .await
+        .context("Failed to retrieve assets")?;
+
+    // TODO: Filter out entries already in the Table :: already_converted
+
+    // TODO: Process entries already staged
+
+    for asset_response in &search_response.assets.items {
+        StagingAreaEntry {
+            user_id: user.id,
+            id: asset_response.id.clone(),
+            checksum: asset_response.checksum.clone(),
+        }.persist(pg_pool).await?;
     }
+
+    for asset_response in &search_response.assets.items {
+        let download_response = immich_client::apis::assets_api::download_asset(
+            api_cfg,
+            asset_response.id.as_str(),
+            None,
+            None,
+            None,
+        ).await.context("Failed to download asset")?;
+
+        println!("{:?}", download_response);
+
+        let content_type = download_response.headers().get("content-type")
+            .expect("Unable to get file content type header")
+            .to_str()?;
+
+        let file_extension = mime2ext::mime2ext(content_type)
+            .expect("Unable to parse mime type");
+
+        let tmp_file_name = format!("{}.{}", asset_response.id, file_extension);
+
+        std::fs::write(tmp_file_name, download_response.bytes().await?)?
+
+        // TODO: pass file through converter
+
+        // TODO: upload
+        
+        // TODO: Transaction(move metadata to new file, delete old, remove StageEntry, Add already_converted)
+    }
+
+    Ok(search_response)
 }
